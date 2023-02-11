@@ -22,8 +22,11 @@ class CNN(nn.Module):
 
 
 class VanillaAstar(nn.Module):
+    Tmax: int = 1.0
+    is_training: bool = False
+
     def setup(self):
-        astar = DifferentiableAstar()
+        astar = DifferentiableAstar(Tmax=self.Tmax, is_training=self.is_training)
         self.astar = jax.vmap(astar)
 
     def encode(self, map_designs, start_maps, goal_maps):
@@ -43,7 +46,7 @@ class VanillaAstar(nn.Module):
 
 class NeuralAstar(VanillaAstar):
     def setup(self):
-        astar = DifferentiableAstar()
+        astar = DifferentiableAstar(Tmax=self.Tmax, is_training=self.is_training)
         self.astar = jax.vmap(astar)
         self.encoder = CNN()
 

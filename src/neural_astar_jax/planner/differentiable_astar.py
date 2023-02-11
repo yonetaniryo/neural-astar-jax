@@ -135,6 +135,7 @@ class DifferentiableAstar:
 
     g_ratio: float = 0.5
     Tmax: float = 1.0
+    is_training: bool = False
 
     def __post_init__(self):
         self.forward = self.build_forward()
@@ -171,6 +172,8 @@ class DifferentiableAstar:
         ) -> AstarOutput:
             """
             Perform differentiable A*
+            Differentiable while-loop is implemented using:
+            https://github.com/google/jax/discussions/3850#discussioncomment-45954
 
             Args:
                 cost_map (Array): cost map
@@ -196,9 +199,9 @@ class DifferentiableAstar:
             T = start_map.size * self.Tmax
 
             def cond(carry: Carry) -> bool:
-                return ~(jnp.allclose(carry.idx_map, goal_map) | (carry.t > T))
+                return ~jnp.allclose(carry.idx_map, goal_map) & (carry.t < T)
 
-            def body(carry: Carry) -> Carry:
+            def step_once(carry: Carry) -> Carry:
                 f = self.g_ratio * carry.g + (1 - self.g_ratio) * h
                 f_exp = jnp.exp(-1 * f / jnp.sqrt(size))
                 f_exp = f_exp * carry.open_map
@@ -223,27 +226,38 @@ class DifferentiableAstar:
                     1 - neighbor_map.flatten()
                 )
 
-                return Carry(
-                    g=g,
-                    idx_map=idx_map,
-                    parents=parents,
-                    open_map=open_map,
-                    history=history,
-                    t=carry.t + 1,
+                return (
+                    Carry(
+                        g=g,
+                        idx_map=idx_map,
+                        parents=parents,
+                        open_map=open_map,
+                        history=history,
+                        t=carry.t + 1,
+                    ),
+                    None,
                 )
 
-            carry = jax.lax.while_loop(
-                cond,
-                body,
-                Carry(
-                    g=g,
-                    idx_map=start_map,
-                    parents=parents,
-                    open_map=open_map,
-                    history=history,
-                    t=0,
-                ),
+            def do_nothing(carry):
+                return carry, None
+
+            def body(carry, x):
+                return jax.lax.cond(cond(carry), step_once, do_nothing, carry)
+
+            init = Carry(
+                g=g,
+                idx_map=start_map,
+                parents=parents,
+                open_map=open_map,
+                history=history,
+                t=0,
             )
+            if self.is_training:
+                carry, _ = jax.lax.scan(
+                    body, init, None, int(start_map.size * self.Tmax)
+                )
+            else:
+                carry = jax.lax.while_loop(cond, lambda c: step_once(c)[0], init)
             path_map = _backtrack(carry.parents, start_map, goal_map)
 
             return AstarOutput(path_map=path_map, history=carry.history)
