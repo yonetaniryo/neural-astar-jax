@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 from functools import partial
+
 import jax
 import jax.numpy as jnp
 import optax
-from .data import Instance
 from flax.training.train_state import TrainState
+
+from .data import Instance
 
 
 @partial(jax.jit, static_argnames="is_training")

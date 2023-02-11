@@ -130,11 +130,12 @@ class DifferentiableAstar:
 
     Returns:
         g_ratio (float, optional): ratio between g(v) + h(v). Set 0 to perform as best-first search. Defaults to 0.5.
-        Tmax (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        search_step_ratio (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        is_training (bool, optional): if reverse-mode differentiation is enabled over loop. Defaults to False.
     """
 
     g_ratio: float = 0.5
-    Tmax: float = 1.0
+    search_step_ratio: float = 1.0
     is_training: bool = False
 
     def __post_init__(self):
@@ -172,7 +173,7 @@ class DifferentiableAstar:
         ) -> AstarOutput:
             """
             Perform differentiable A*
-            Differentiable while-loop is implemented using:
+            Reverse-mode differentiation over loop is implemented using:
             https://github.com/google/jax/discussions/3850#discussioncomment-45954
 
             Args:
@@ -196,7 +197,7 @@ class DifferentiableAstar:
             h = _get_heuristic_map(goal_map) + cost_map
             g = jnp.zeros_like(start_map)
 
-            T = start_map.size * self.Tmax
+            T = start_map.size * self.search_step_ratio
 
             def cond(carry: Carry) -> bool:
                 return ~jnp.allclose(carry.idx_map, goal_map) & (carry.t < T)
@@ -253,10 +254,10 @@ class DifferentiableAstar:
                 t=0,
             )
             if self.is_training:
-                carry, _ = jax.lax.scan(
-                    body, init, None, int(start_map.size * self.Tmax)
-                )
+                # the "body" function will be repeated for T steps. Set smaller search_step_ratio for acceleration
+                carry, _ = jax.lax.scan(body, init, None, T)
             else:
+                # the "step_once" function will be repeated until goal is found.
                 carry = jax.lax.while_loop(cond, lambda c: step_once(c)[0], init)
             path_map = _backtrack(carry.parents, start_map, goal_map)
 

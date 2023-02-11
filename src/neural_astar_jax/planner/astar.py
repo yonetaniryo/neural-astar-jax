@@ -22,11 +22,25 @@ class CNN(nn.Module):
 
 
 class VanillaAstar(nn.Module):
-    Tmax: int = 1.0
+    """
+    Vanilla differentiable A* planner
+
+    Returns:
+        g_ratio (float, optional): ratio between g(v) + h(v). Set 0 to perform as best-first search. Defaults to 0.5.
+        search_step_ratio (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        is_training (bool, optional): if reverse-mode differentiation is enabled over loop. Defaults to False.
+    """
+
+    g_ratio: float = 0.5
+    search_step_ratio: float = 1.0
     is_training: bool = False
 
     def setup(self):
-        astar = DifferentiableAstar(Tmax=self.Tmax, is_training=self.is_training)
+        astar = DifferentiableAstar(
+            g_ratio=self.g_ratio,
+            search_step_ratio=self.search_step_ratio,
+            is_training=self.is_training,
+        )
         self.astar = jax.vmap(astar)
 
     def encode(self, map_designs, start_maps, goal_maps):
@@ -45,8 +59,21 @@ class VanillaAstar(nn.Module):
 
 
 class NeuralAstar(VanillaAstar):
+    """
+    Neural A* planner
+
+    Returns:
+        g_ratio (float, optional): ratio between g(v) + h(v). Set 0 to perform as best-first search. Defaults to 0.5.
+        search_step_ratio (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        is_training (bool, optional): if reverse-mode differentiation is enabled over loop. Defaults to False.
+    """
+
     def setup(self):
-        astar = DifferentiableAstar(Tmax=self.Tmax, is_training=self.is_training)
+        astar = DifferentiableAstar(
+            g_ratio=self.g_ratio,
+            search_step_ratio=self.search_step_ratio,
+            is_training=self.is_training,
+        )
         self.astar = jax.vmap(astar)
         self.encoder = CNN()
 
