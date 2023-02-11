@@ -43,6 +43,15 @@ class MazeDataLoader:
 
     def _build_sample_batch(self):
         def sample_batch(key: PRNGKey) -> Instance:
+            """
+            Sample a batch of instances
+
+            Args:
+                key (PRNGKey): PRNG key
+
+            Returns:
+                Instance: batch of instances
+            """
             indices = jax.random.randint(key, (self.batch_size,), 0, self.N)
             key_array = jax.random.split(key, self.batch_size)
 
@@ -52,6 +61,16 @@ class MazeDataLoader:
 
     def _build_sample_instance(self):
         def sample_instance(key: PRNGKey, index: int) -> Instance:
+            """
+            Sample a single problem instance
+
+            Args:
+                key (PRNGKey): PRNG Key
+                index (int): instance index in the dataset
+
+            Returns:
+                Instance: problem instance
+            """
             map_design = self.map_designs[index]
             goal_map = self.goal_maps[index]
             opt_policy = self.opt_policies[index]
@@ -69,12 +88,32 @@ class MazeDataLoader:
         return jax.jit(sample_instance)
 
     def load_all_instances(self, key: PRNGKey) -> Instance:
+        """
+        Load all problem instances without shuffling
+
+        Args:
+            key (PRNGKey): PRNG Key (for sampling start maps)
+
+        Returns:
+            Instance: all instances
+        """
         key_array = jax.random.split(key, self.N)
         return jax.vmap(self.sample_instance)(key_array, jnp.arange(self.N))
 
 
 @jax.jit
-def get_opt_path_map(start_map, goal_map, opt_policy):
+def get_opt_path_map(start_map: Array, goal_map: Array, opt_policy: Array) -> Array:
+    """
+    Get optimal path map from pre-computed policy
+
+    Args:
+        start_map (Array): start map
+        goal_map (Array): goal map
+        opt_policy (Array): optimap policy of size (8, H, W)
+
+    Returns:
+        Array: path map
+    """
     goal_idx = jnp.argmax(goal_map)
 
     def next_loc(one_hot_action):
@@ -108,9 +147,20 @@ def get_opt_path_map(start_map, goal_map, opt_policy):
 
 
 @partial(jax.jit, static_argnames="pct")
-def sample_start(key, opt_dist, pct=45):
+def sample_start(key: PRNGKey, opt_dist: Array, pct: float = 0.55) -> Array:
+    """
+    Get start map with the start sampling from regions distant from goal
+
+    Args:
+        key (PRNGKey): PRNG key
+        opt_dist (Array): optimal distance to the goal
+        pct (float, optional): Percentile setting from which start is sampled. Defaults to 0.55.
+
+    Returns:
+        Array: start map
+    """
     opt_dist_nan = opt_dist + (opt_dist == opt_dist.min()) * jnp.nan
-    th = jnp.nanpercentile(opt_dist_nan, pct)
+    th = jnp.nanpercentile(opt_dist_nan, 100 * (1 - pct))
     start_cand = (
         jax.random.permutation(key, opt_dist.size).reshape(opt_dist.shape)
         + jnp.nan * (opt_dist > th)
