@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = 'setuptools.build_meta'
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[project]
+name = "neural-astar-jax"
+description = "jax implementation of neural astar"
+readme = "README.md"
+authors = [{ name = "Ryo Yonetani" }, { email = "yonetani.vision@gmail.com" }]
+license = {file = "LICENSE"}
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Development Status :: 4 - Beta",
+    "Framework :: Robot Framework :: Library",
+    "Framework :: Robot Framework :: Tool"
+]
+requires-python = ">=3.8"
+dependencies = [
+    "jax==0.3.16",
+    "jaxlib==0.3.15",
+    "flax==0.6.0",
+    "hydra-core==1.2.0",
+    "numpy",
+    "tensorboardx",
+    "jupyterlab",
+    "matplotlib",
+    "neural-astar @ git+https://github.com/omron-sinicx/neural-astar.git",
+
+]
+version = "0.0.1"
+
+[project.urls]
+Homepage = "https://github.com/yonetaniryo/neural-astar-jax"
+repository = "https://github.com/yonetaniryo/neural-astar-jax"
+
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pysen==0.10.1",
+    "black==22.3.0",
+    "flake8==4.0.1",
+    "isort==5.10.1",
+    "mypy==0.910",
+]
+
+
+[tool.pysen]
+version = "0.10.1"
+
+[tool.pysen.lint]
+enable_black = true
+enable_flake8 = true
+enable_isort = true
+enable_mypy = true
+py_version = "py39"
+
+[[tool.pysen.lint.mypy_targets]]
+paths = ["."]
