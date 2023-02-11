@@ -5,11 +5,17 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from chex import Array, dataclass
 
 
+class AstarOutput(NamedTuple):
+    path_map: Array
+    history: Array
+
+
 @partial(jax.jit, static_argnames="tb_factor")
-def get_heuristic_map(goal_map, tb_factor=0.001):
+def get_heuristic_map(goal_map: Array, tb_factor: float = 0.001) -> Array:
     H, W = goal_map.shape
     goal_idx = jnp.argmax(goal_map)
     goal_y, goal_x = jnp.unravel_index(goal_idx, goal_map.shape)
@@ -26,7 +32,7 @@ def get_heuristic_map(goal_map, tb_factor=0.001):
 
 
 @jax.jit
-def st_softmax_noexp(val):
+def st_softmax_noexp(val: Array) -> Array:
     val_ = val.flatten()
     y = val_ / val_.sum()
     idx = jnp.argmax(val_)
@@ -39,7 +45,7 @@ def st_softmax_noexp(val):
 
 
 @jax.jit
-def expand(idx_map):
+def expand(idx_map: Array) -> Array:
 
     padded_map = jnp.zeros((idx_map.shape[0] + 2, idx_map.shape[1] + 2))
     padded_map = jax.lax.dynamic_update_slice(padded_map, idx_map, (1, 1))
@@ -52,16 +58,30 @@ def expand(idx_map):
     return neighbor_map[1:-1, 1:-1]
 
 
-def backtrack(goal_map, parents, t):
-    if jnp.any(jnp.isnan(parents)):
-        return goal_map
-    path_map = goal_map.flatten()
-    next_idx = int(jnp.argmax(goal_map.flatten()))
+@jax.jit
+def backtrack(parents: Array, start_map: Array, goal_map: Array) -> Array:
 
-    for _ in range(t + 1):
-        path_map = path_map.at[next_idx].set(1)
-        next_idx = int(parents[next_idx])
-    return path_map.reshape(goal_map.shape)
+    path_map = goal_map.flatten()
+    start_idx = jnp.argmax(start_map.flatten())
+    next_idx = jnp.argmax(path_map).astype(int)
+
+    class Carry(NamedTuple):
+        path_map: Array
+        next_idx: Array
+        t: int
+
+    def cond(carry):
+        return (carry.t < start_map.size) & (carry.path_map[start_idx] == 0)
+
+    def body(carry):
+        path_map = carry.path_map.at[carry.next_idx].set(1)
+        next_idx = parents[carry.next_idx].astype(int)
+        return Carry(path_map=path_map, next_idx=next_idx, t=carry.t + 1)
+
+    carry = jax.lax.while_loop(
+        cond, body, Carry(path_map=path_map, next_idx=next_idx, t=0)
+    )
+    return carry.path_map.reshape(goal_map.shape)
 
 
 @dataclass
@@ -72,11 +92,23 @@ class DifferentiableAstar:
     def __post_init__(self):
         self.forward = self.build_forward()
 
-    def __call__(self, cost_map, start_map, goal_map, obstacles_map):
+    def __call__(
+        self, cost_map: Array, start_map: Array, goal_map: Array, obstacles_map: Array
+    ) -> AstarOutput:
         return self.forward(cost_map, start_map, goal_map, obstacles_map)
 
     def build_forward(self):
-        def forward(cost_map, start_map, goal_map, obstacles_map):
+        class Carry(NamedTuple):
+            g: Array
+            idx_map: Array
+            parents: Array
+            open_map: Array
+            history: Array
+            t: int
+
+        def forward(
+            cost_map: Array, start_map: Array, goal_map: Array, obstacles_map: Array
+        ) -> AstarOutput:
             H, W = cost_map.shape
 
             open_map = start_map
@@ -90,14 +122,6 @@ class DifferentiableAstar:
 
             T = start_map.size * self.Tmax
 
-            class Carry(NamedTuple):
-                g: Array
-                idx_map: Array
-                parents: Array
-                open_map: Array
-                history: Array
-                t: int
-
             def cond(carry: Carry) -> bool:
                 return ~(jnp.allclose(carry.idx_map, goal_map) | (carry.t > T))
 
@@ -107,7 +131,6 @@ class DifferentiableAstar:
                 f_exp = f_exp * carry.open_map
                 idx_map = st_softmax_noexp(f_exp)
                 idx = jnp.argmax(idx_map)
-                idx_y, idx_x = jnp.unravel_index(idx, obstacles_map.shape)
 
                 history = jnp.clip(carry.history + idx_map, a_max=1)
                 open_map = jnp.clip(carry.open_map - idx_map, a_min=0, a_max=1)
@@ -148,7 +171,8 @@ class DifferentiableAstar:
                     t=0,
                 ),
             )
+            path_map = backtrack(carry.parents, start_map, goal_map)
 
-            return carry
+            return AstarOutput(path_map=path_map, history=carry.history)
 
         return jax.jit(forward)
