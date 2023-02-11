@@ -6,7 +6,14 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
-from chex import Array, dataclass
+from chex import Array, PRNGKey, dataclass
+
+
+class Instance(NamedTuple):
+    map_design: Array
+    start_map: Array
+    goal_map: Array
+    path_map: Array
 
 
 @dataclass
@@ -14,7 +21,6 @@ class MazeDataLoader:
     filename: str
     split: str
     batch_size: int
-    # shuffle: bool
 
     def __post_init__(self):
         data = np.load(self.filename)
@@ -30,24 +36,41 @@ class MazeDataLoader:
         self.opt_policies = jnp.array(data[f"arr_{i + 2}"])[:, :, 0]
         self.opt_dists = jnp.array(data[f"arr_{i + 3}"])[:, 0]
 
+        self.sample_instance = self._build_sample_instance()
         self.sample_batch = self._build_sample_batch()
 
-    def _build_sample_batch(self):
-        def sample_batch(key):
-            indices = jax.random.randint(
-                key, (self.batch_size,), 0, len(self.map_designs)
-            )
-            map_designs = self.map_designs[indices]
-            goal_maps = self.goal_maps[indices]
-            opt_policies = self.opt_policies[indices]
-            opt_dists = self.opt_dists[indices]
-            key_array = jax.random.split(key, self.batch_size)
-            start_maps = jax.vmap(sample_start)(key_array, opt_dists)
-            path_maps = jax.vmap(get_opt_path_map)(start_maps, goal_maps, opt_policies)
+        self.N = len(self.map_designs)
 
-            return map_designs, start_maps, self.goal_maps, path_maps
+    def _build_sample_batch(self):
+        def sample_batch(key: PRNGKey) -> Instance:
+            indices = jax.random.randint(key, (self.batch_size,), 0, self.N)
+            key_array = jax.random.split(key, self.batch_size)
+
+            return jax.vmap(self.sample_instance)(key_array, indices)
 
         return jax.jit(sample_batch)
+
+    def _build_sample_instance(self):
+        def sample_instance(key: PRNGKey, index: int) -> Instance:
+            map_design = self.map_designs[index]
+            goal_map = self.goal_maps[index]
+            opt_policy = self.opt_policies[index]
+            opt_dist = self.opt_dists[index]
+            start_map = sample_start(key, opt_dist)
+            path_map = get_opt_path_map(start_map, goal_map, opt_policy)
+
+            return Instance(
+                map_design=map_design,
+                start_map=start_map,
+                goal_map=self.goal_maps[index],
+                path_map=path_map,
+            )
+
+        return jax.jit(sample_instance)
+
+    def load_all_instances(self, key: PRNGKey) -> Instance:
+        key_array = jax.random.split(key, self.N)
+        return jax.vmap(self.sample_instance)(key_array, jnp.arange(self.N))
 
 
 @jax.jit
