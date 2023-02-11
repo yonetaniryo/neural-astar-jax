@@ -57,7 +57,7 @@ enable_black = true
 enable_flake8 = true
 enable_isort = true
 enable_mypy = true
-py_version = "py39"
+py_version = "py38"
 
 [[tool.pysen.lint.mypy_targets]]
 paths = ["."]
