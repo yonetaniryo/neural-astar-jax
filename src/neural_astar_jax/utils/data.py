@@ -14,7 +14,7 @@ class MazeDataLoader:
     filename: str
     split: str
     batch_size: int
-    shuffle: bool
+    # shuffle: bool
 
     def __post_init__(self):
         data = np.load(self.filename)
