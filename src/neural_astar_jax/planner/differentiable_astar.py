@@ -5,7 +5,6 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from chex import Array, dataclass
 
 
@@ -15,7 +14,17 @@ class AstarOutput(NamedTuple):
 
 
 @partial(jax.jit, static_argnames="tb_factor")
-def get_heuristic_map(goal_map: Array, tb_factor: float = 0.001) -> Array:
+def _get_heuristic_map(goal_map: Array, tb_factor: float = 0.001) -> Array:
+    """
+    Compute Chebyshev heuristic
+
+    Args:
+        goal_map (Array): one-hot goal map
+        tb_factor (float, optional): tie-breaking factor. Defaults to 0.001.
+
+    Returns:
+        Array: heuristics map
+    """
     H, W = goal_map.shape
     goal_idx = jnp.argmax(goal_map)
     goal_y, goal_x = jnp.unravel_index(goal_idx, goal_map.shape)
@@ -32,7 +41,17 @@ def get_heuristic_map(goal_map: Array, tb_factor: float = 0.001) -> Array:
 
 
 @jax.jit
-def st_softmax_noexp(val: Array) -> Array:
+def _st_softmax_noexp(val: Array) -> Array:
+    """
+    straight-through soft-max function taking exp(-f) as input
+
+    Args:
+        val (Array): exp(-f)
+
+    Returns:
+        Array: one-hot map for selected index
+    """
+
     val_ = val.flatten()
     y = val_ / val_.sum()
     idx = jnp.argmax(val_)
@@ -45,7 +64,16 @@ def st_softmax_noexp(val: Array) -> Array:
 
 
 @jax.jit
-def expand(idx_map: Array) -> Array:
+def _expand(idx_map: Array) -> Array:
+    """
+    Expand eight neighbors of the selected index
+
+    Args:
+        idx_map (Array): One-hot map for selected index
+
+    Returns:
+        Array: Binary map for neighbors
+    """
 
     padded_map = jnp.zeros((idx_map.shape[0] + 2, idx_map.shape[1] + 2))
     padded_map = jax.lax.dynamic_update_slice(padded_map, idx_map, (1, 1))
@@ -59,7 +87,18 @@ def expand(idx_map: Array) -> Array:
 
 
 @jax.jit
-def backtrack(parents: Array, start_map: Array, goal_map: Array) -> Array:
+def _backtrack(parents: Array, start_map: Array, goal_map: Array) -> Array:
+    """
+    Backtracking operation to produce path
+
+    Args:
+        parents (Array): Array indicating parent indices
+        start_map (Array): one-hot start map
+        goal_map (Array): one-hot goal map
+
+    Returns:
+        Array: Path map
+    """
 
     path_map = goal_map.flatten()
     start_idx = jnp.argmax(start_map.flatten())
@@ -86,8 +125,16 @@ def backtrack(parents: Array, start_map: Array, goal_map: Array) -> Array:
 
 @dataclass
 class DifferentiableAstar:
-    Tmax: float = 1.0
+    """
+    Differentiable A* module
+
+    Returns:
+        g_ratio (float, optional): ratio between g(v) + h(v). Set 0 to perform as best-first search. Defaults to 0.5.
+        Tmax (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+    """
+
     g_ratio: float = 0.5
+    Tmax: float = 1.0
 
     def __post_init__(self):
         self.forward = self.build_forward()
@@ -95,6 +142,19 @@ class DifferentiableAstar:
     def __call__(
         self, cost_map: Array, start_map: Array, goal_map: Array, obstacles_map: Array
     ) -> AstarOutput:
+        """
+        Perform differentiable A*
+
+        Args:
+            cost_map (Array): cost map
+            start_map (Array): one-hot start map
+            goal_map (Array): one-hot goal map
+            obstacles_map (Array): binary obstalces map indicating 1 for passable and 0 for otherwise
+
+        Returns:
+            AstarOutput: namedtuple of path_map and history
+        """
+
         return self.forward(cost_map, start_map, goal_map, obstacles_map)
 
     def build_forward(self):
@@ -109,7 +169,20 @@ class DifferentiableAstar:
         def forward(
             cost_map: Array, start_map: Array, goal_map: Array, obstacles_map: Array
         ) -> AstarOutput:
-            H, W = cost_map.shape
+            """
+            Perform differentiable A*
+
+            Args:
+                cost_map (Array): cost map
+                start_map (Array): one-hot start map
+                goal_map (Array): one-hot goal map
+                obstacles_map (Array): binary obstalces map indicating 1 for passable and 0 for otherwise
+
+            Returns:
+                AstarOutput: namedtuple of path_map and history
+            """
+
+            size = cost_map.shape[-1]
 
             open_map = start_map
             history = jnp.zeros_like(start_map)
@@ -117,7 +190,7 @@ class DifferentiableAstar:
                 goal_map.flatten()
             )
 
-            h = get_heuristic_map(goal_map) + cost_map
+            h = _get_heuristic_map(goal_map) + cost_map
             g = jnp.zeros_like(start_map)
 
             T = start_map.size * self.Tmax
@@ -127,14 +200,14 @@ class DifferentiableAstar:
 
             def body(carry: Carry) -> Carry:
                 f = self.g_ratio * carry.g + (1 - self.g_ratio) * h
-                f_exp = jnp.exp(-1 * f / jnp.sqrt(W))
+                f_exp = jnp.exp(-1 * f / jnp.sqrt(size))
                 f_exp = f_exp * carry.open_map
-                idx_map = st_softmax_noexp(f_exp)
+                idx_map = _st_softmax_noexp(f_exp)
                 idx = jnp.argmax(idx_map)
 
                 history = jnp.clip(carry.history + idx_map, a_max=1)
                 open_map = jnp.clip(carry.open_map - idx_map, a_min=0, a_max=1)
-                neighbor_map = expand(idx_map) * obstacles_map
+                neighbor_map = _expand(idx_map) * obstacles_map
 
                 g2 = (carry.g + cost_map) * neighbor_map
                 neighbor_map = (
@@ -171,7 +244,7 @@ class DifferentiableAstar:
                     t=0,
                 ),
             )
-            path_map = backtrack(carry.parents, start_map, goal_map)
+            path_map = _backtrack(carry.parents, start_map, goal_map)
 
             return AstarOutput(path_map=path_map, history=carry.history)
 
