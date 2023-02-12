@@ -21,9 +21,10 @@ class Trainer:
     val_loader: dataclass
     learning_rate: float = 0.001
     seed: int = 0
-    val_every_n_steps: int = 10
+    val_every_n_steps: int = 1
 
     def __post_init__(self):
+        self.search_step_ratio = self.planner.search_step_ratio
         optimal_planner = DifferentiableAstar()
         key = jax.random.PRNGKey(self.seed)
         val_batch = self.val_loader.load_all_instances(key)
@@ -74,6 +75,8 @@ class Trainer:
     def _build_train_step(self):
         def train_step(key: PRNGKey, state: TrainStateBN):
             self.planner.is_training = True
+            self.planner.search_step_ratio = self.search_step_ratio
+            self.planner.reset_differentiable_astar()
 
             batch = self.train_loader.sample_batch(key)
 
@@ -100,6 +103,8 @@ class Trainer:
     def _build_val_step(self):
         def val_step(state: TrainStateBN):
             self.planner.is_training = False
+            self.planner.search_step_ratio = 1.0
+            self.planner.reset_differentiable_astar()
             outputs = self.planner.apply(
                 {"params": state.params, "batch_stats": state.batch_stats},
                 self.val_batch.map_design,

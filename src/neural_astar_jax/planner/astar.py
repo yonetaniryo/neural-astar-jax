@@ -38,6 +38,9 @@ class VanillaAstar(nn.Module):
     is_training: bool = False
 
     def setup(self):
+        self.reset_differentiable_astar()
+
+    def reset_differentiable_astar(self):
         astar = DifferentiableAstar(
             g_ratio=self.g_ratio,
             search_step_ratio=self.search_step_ratio,
