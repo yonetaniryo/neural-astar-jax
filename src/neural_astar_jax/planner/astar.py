@@ -20,7 +20,7 @@ class CNN(nn.Module):
                 features=b,
                 kernel_size=(3, 3),
                 kernel_init=nn.initializers.lecun_normal(),
-                bias_init=nn.initializers.ones,
+                bias_init=nn.initializers.zeros,
             )(x)
             x = nn.BatchNorm(use_running_average=not is_training, momentum=0.9)(x)
             x = nn.relu(x) if i < len(self.channels) - 1 else nn.sigmoid(x)
