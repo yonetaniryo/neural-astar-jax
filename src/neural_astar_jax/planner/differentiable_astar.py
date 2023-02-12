@@ -213,7 +213,7 @@ class DifferentiableAstar:
                 open_map = jnp.clip(carry.open_map - idx_map, a_min=0, a_max=1)
                 neighbor_map = _expand(idx_map) * obstacles_map
 
-                g2 = (carry.g + cost_map) * neighbor_map
+                g2 = ((carry.g + cost_map) * idx_map).sum() * neighbor_map
                 neighbor_map = (
                     (1 - open_map) * (1 - history) + open_map * (carry.g > g2)
                 ) * neighbor_map

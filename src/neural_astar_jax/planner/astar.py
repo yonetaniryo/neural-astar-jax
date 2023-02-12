@@ -16,8 +16,13 @@ class CNN(nn.Module):
         x = jnp.stack((map_designs, start_maps + goal_maps), -1)
 
         for i, b in enumerate(self.channels):
-            x = nn.Conv(features=b, kernel_size=(3, 3))(x)
-            x = nn.BatchNorm(use_running_average=not is_training, momentum=0.1)(x)
+            x = nn.Conv(
+                features=b,
+                kernel_size=(3, 3),
+                kernel_init=nn.initializers.lecun_normal(),
+                bias_init=nn.initializers.ones,
+            )(x)
+            x = nn.BatchNorm(use_running_average=not is_training, momentum=0.9)(x)
             x = nn.relu(x) if i < len(self.channels) - 1 else nn.sigmoid(x)
 
         return x[..., 0]
