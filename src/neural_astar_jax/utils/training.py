@@ -51,7 +51,7 @@ class Trainer:
                 apply_fn=self.planner.apply,
                 params=variables["params"],
                 batch_stats=variables["batch_stats"],
-                tx=optax.rmsprop(learning_rate=self.learning_rate),
+                tx=optax.adam(learning_rate=self.learning_rate),
             )
 
         best_state = state
@@ -105,12 +105,14 @@ class Trainer:
             self.planner.is_training = False
             self.planner.search_step_ratio = 1.0
             self.planner.reset_differentiable_astar()
+
             outputs = self.planner.apply(
                 {"params": state.params, "batch_stats": state.batch_stats},
                 self.val_batch.map_design,
                 self.val_batch.start_map,
                 self.val_batch.goal_map,
             )
+
             loss = jnp.abs(outputs.history - self.val_batch.path_map).mean()
             pathlen_opt = self.optimal_plans.path_map.sum((1, 2))
             pathlen_na = outputs.path_map.sum((1, 2))
