@@ -130,11 +130,13 @@ class DifferentiableAstar:
 
     Returns:
         g_ratio (float, optional): ratio between g(v) + h(v). Set 0 to perform as best-first search. Defaults to 0.5.
-        Tmax (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        search_step_ratio (float, optional): how much of the map the planner explores during training. Defaults to 1.0.
+        is_training (bool, optional): if reverse-mode differentiation is enabled over loop. Defaults to False.
     """
 
     g_ratio: float = 0.5
-    Tmax: float = 1.0
+    search_step_ratio: float = 1.0
+    is_training: bool = False
 
     def __post_init__(self):
         self.forward = self.build_forward()
@@ -171,6 +173,8 @@ class DifferentiableAstar:
         ) -> AstarOutput:
             """
             Perform differentiable A*
+            Reverse-mode differentiation over loop is implemented using:
+            https://github.com/google/jax/discussions/3850#discussioncomment-45954
 
             Args:
                 cost_map (Array): cost map
@@ -193,12 +197,12 @@ class DifferentiableAstar:
             h = _get_heuristic_map(goal_map) + cost_map
             g = jnp.zeros_like(start_map)
 
-            T = start_map.size * self.Tmax
+            T = start_map.size * self.search_step_ratio
 
             def cond(carry: Carry) -> bool:
-                return ~(jnp.allclose(carry.idx_map, goal_map) | (carry.t > T))
+                return ~jnp.allclose(carry.idx_map, goal_map) & (carry.t < T)
 
-            def body(carry: Carry) -> Carry:
+            def step_once(carry: Carry) -> Carry:
                 f = self.g_ratio * carry.g + (1 - self.g_ratio) * h
                 f_exp = jnp.exp(-1 * f / jnp.sqrt(size))
                 f_exp = f_exp * carry.open_map
@@ -209,7 +213,7 @@ class DifferentiableAstar:
                 open_map = jnp.clip(carry.open_map - idx_map, a_min=0, a_max=1)
                 neighbor_map = _expand(idx_map) * obstacles_map
 
-                g2 = (carry.g + cost_map) * neighbor_map
+                g2 = ((carry.g + cost_map) * idx_map).sum() * neighbor_map
                 neighbor_map = (
                     (1 - open_map) * (1 - history) + open_map * (carry.g > g2)
                 ) * neighbor_map
@@ -223,27 +227,39 @@ class DifferentiableAstar:
                     1 - neighbor_map.flatten()
                 )
 
-                return Carry(
-                    g=g,
-                    idx_map=idx_map,
-                    parents=parents,
-                    open_map=open_map,
-                    history=history,
-                    t=carry.t + 1,
+                return (
+                    Carry(
+                        g=g,
+                        idx_map=idx_map,
+                        parents=parents,
+                        open_map=open_map,
+                        history=history,
+                        t=carry.t + 1,
+                    ),
+                    None,
                 )
 
-            carry = jax.lax.while_loop(
-                cond,
-                body,
-                Carry(
-                    g=g,
-                    idx_map=start_map,
-                    parents=parents,
-                    open_map=open_map,
-                    history=history,
-                    t=0,
-                ),
+            def do_nothing(carry):
+                return carry, None
+
+            def body(carry, x):
+                return jax.lax.cond(cond(carry), step_once, do_nothing, carry)
+
+            init = Carry(
+                g=g,
+                idx_map=start_map,
+                parents=parents,
+                open_map=open_map,
+                history=history,
+                t=0,
             )
+            if self.is_training:
+                # the "body" function will be repeated for T steps. Set smaller search_step_ratio for acceleration
+                carry, _ = jax.lax.scan(body, init, None, T)
+            else:
+                # the "step_once" function will be repeated until goal is found.
+                carry = jax.lax.while_loop(cond, lambda c: step_once(c)[0], init)
+
             path_map = _backtrack(carry.parents, start_map, goal_map)
 
             return AstarOutput(path_map=path_map, history=carry.history)
