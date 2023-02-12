@@ -8,15 +8,17 @@ from .differentiable_astar import DifferentiableAstar
 
 
 class CNN(nn.Module):
+    channels = [32, 64, 128, 256, 1]
+
     @nn.compact
-    def __call__(self, map_designs, start_maps, goal_maps):
+    def __call__(self, map_designs, start_maps, goal_maps, is_training: bool = False):
 
         x = jnp.stack((map_designs, start_maps + goal_maps), -1)
 
-        for i, b in enumerate([32, 64, 128, 256, 1]):
+        for i, b in enumerate(self.channels):
             x = nn.Conv(features=b, kernel_size=(3, 3))(x)
-            x = nn.LayerNorm()(x)
-            x = nn.relu(x) if i < 3 else nn.sigmoid(x)
+            x = nn.BatchNorm(use_running_average=not is_training, momentum=0.1)(x)
+            x = nn.relu(x) if i < len(self.channels) - 1 else nn.sigmoid(x)
 
         return x[..., 0]
 
@@ -68,6 +70,10 @@ class NeuralAstar(VanillaAstar):
         is_training (bool, optional): if reverse-mode differentiation is enabled over loop. Defaults to False.
     """
 
+    g_ratio: float = 0.5
+    search_step_ratio: float = 1.0
+    is_training: bool = False
+
     def setup(self):
         astar = DifferentiableAstar(
             g_ratio=self.g_ratio,
@@ -78,5 +84,5 @@ class NeuralAstar(VanillaAstar):
         self.encoder = CNN()
 
     def encode(self, map_designs, start_maps, goal_maps):
-        cost_maps = self.encoder(map_designs, start_maps, goal_maps)
+        cost_maps = self.encoder(map_designs, start_maps, goal_maps, self.is_training)
         return cost_maps

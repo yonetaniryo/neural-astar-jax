@@ -259,6 +259,7 @@ class DifferentiableAstar:
             else:
                 # the "step_once" function will be repeated until goal is found.
                 carry = jax.lax.while_loop(cond, lambda c: step_once(c)[0], init)
+
             path_map = _backtrack(carry.parents, start_map, goal_map)
 
             return AstarOutput(path_map=path_map, history=carry.history)
