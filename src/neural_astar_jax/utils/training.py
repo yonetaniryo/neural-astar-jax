@@ -3,11 +3,13 @@ from __future__ import annotations
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from chex import PRNGKey, dataclass
 from flax.training.train_state import TrainState
 
 from ..planner.differentiable_astar import DifferentiableAstar
+from .data import Instance
 
 
 class TrainStateBN(TrainState):
@@ -27,6 +29,19 @@ class Trainer:
         self.search_step_ratio = self.planner.search_step_ratio
         optimal_planner = DifferentiableAstar()
         key = jax.random.PRNGKey(self.seed)
+
+        # val_batch = [self.val_loader.dataset.__getitem__(i) for i in range(100)]
+        # map_design = jnp.stack([x[0][0] for x in val_batch], 0)
+        # start_map = jnp.stack([x[1][0] for x in val_batch], 0)
+        # goal_map = jnp.stack([x[2][0] for x in val_batch], 0)
+        # path_map = jnp.stack([x[3][0] for x in val_batch], 0)
+        # val_batch = Instance(
+        #     map_design=map_design,
+        #     start_map=start_map,
+        #     goal_map=goal_map,
+        #     path_map=path_map,
+        # )
+
         val_batch = self.val_loader.load_all_instances(key)
         optimal_plans = jax.vmap(optimal_planner)(
             val_batch.map_design,
@@ -40,6 +55,12 @@ class Trainer:
 
     def fit(self, key: PRNGKey, state: TrainStateBN = None, max_steps: int = 10):
         batch = self.train_loader.sample_batch(key)
+        # batch = Instance(
+        #     map_design=jnp.ones((1, 32, 32)),
+        #     start_map=jnp.ones((1, 32, 32)),
+        #     goal_map=jnp.ones((1, 32, 32)),
+        #     path_map=jnp.ones((1, 32, 32)),
+        # )
         if state == None:
             variables = self.planner.init(
                 jax.random.PRNGKey(self.seed),
@@ -79,6 +100,18 @@ class Trainer:
             self.planner.reset_differentiable_astar()
 
             batch = self.train_loader.sample_batch(key)
+            # randint = np.random.randint(0, len(self.train_loader.dataset), (100,))
+            # train_batch = [self.train_loader.dataset.__getitem__(i) for i in randint]
+            # map_design = jnp.stack([x[0][0] for x in train_batch], 0)
+            # start_map = jnp.stack([x[1][0] for x in train_batch], 0)
+            # goal_map = jnp.stack([x[2][0] for x in train_batch], 0)
+            # path_map = jnp.stack([x[3][0] for x in train_batch], 0)
+            # batch = Instance(
+            #     map_design=map_design,
+            #     start_map=start_map,
+            #     goal_map=goal_map,
+            #     path_map=path_map,
+            # )
 
             def loss_fn(params):
                 outputs, updates = state.apply_fn(
