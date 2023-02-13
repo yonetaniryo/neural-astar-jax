@@ -30,18 +30,6 @@ class Trainer:
         optimal_planner = DifferentiableAstar()
         key = jax.random.PRNGKey(self.seed)
 
-        # val_batch = [self.val_loader.dataset.__getitem__(i) for i in range(100)]
-        # map_design = jnp.stack([x[0][0] for x in val_batch], 0)
-        # start_map = jnp.stack([x[1][0] for x in val_batch], 0)
-        # goal_map = jnp.stack([x[2][0] for x in val_batch], 0)
-        # path_map = jnp.stack([x[3][0] for x in val_batch], 0)
-        # val_batch = Instance(
-        #     map_design=map_design,
-        #     start_map=start_map,
-        #     goal_map=goal_map,
-        #     path_map=path_map,
-        # )
-
         val_batch = self.val_loader.load_all_instances(key)
         optimal_plans = jax.vmap(optimal_planner)(
             val_batch.map_design,
@@ -53,27 +41,20 @@ class Trainer:
         self.train_step = self._build_train_step()
         self.val_step = self._build_val_step()
 
-    def fit(self, key: PRNGKey, state: TrainStateBN = None, max_steps: int = 10):
+    def fit(self, key: PRNGKey, max_steps: int = 10) -> TrainStateBN:
         batch = self.train_loader.sample_batch(key)
-        # batch = Instance(
-        #     map_design=jnp.ones((1, 32, 32)),
-        #     start_map=jnp.ones((1, 32, 32)),
-        #     goal_map=jnp.ones((1, 32, 32)),
-        #     path_map=jnp.ones((1, 32, 32)),
-        # )
-        if state == None:
-            variables = self.planner.init(
-                jax.random.PRNGKey(self.seed),
-                batch.map_design,
-                batch.start_map,
-                batch.goal_map,
-            )
-            state = TrainStateBN.create(
-                apply_fn=self.planner.apply,
-                params=variables["params"],
-                batch_stats=variables["batch_stats"],
-                tx=optax.adam(learning_rate=self.learning_rate),
-            )
+        variables = self.planner.init(
+            jax.random.PRNGKey(self.seed),
+            batch.map_design,
+            batch.start_map,
+            batch.goal_map,
+        )
+        state = TrainStateBN.create(
+            apply_fn=self.planner.apply,
+            params=variables["params"],
+            batch_stats=variables["batch_stats"],
+            tx=optax.adam(learning_rate=self.learning_rate),
+        )
 
         best_state = state
         best_h_mean = -jnp.inf
@@ -100,18 +81,6 @@ class Trainer:
             self.planner.reset_differentiable_astar()
 
             batch = self.train_loader.sample_batch(key)
-            # randint = np.random.randint(0, len(self.train_loader.dataset), (100,))
-            # train_batch = [self.train_loader.dataset.__getitem__(i) for i in randint]
-            # map_design = jnp.stack([x[0][0] for x in train_batch], 0)
-            # start_map = jnp.stack([x[1][0] for x in train_batch], 0)
-            # goal_map = jnp.stack([x[2][0] for x in train_batch], 0)
-            # path_map = jnp.stack([x[3][0] for x in train_batch], 0)
-            # batch = Instance(
-            #     map_design=map_design,
-            #     start_map=start_map,
-            #     goal_map=goal_map,
-            #     path_map=path_map,
-            # )
 
             def loss_fn(params):
                 outputs, updates = state.apply_fn(
